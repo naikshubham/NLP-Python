@@ -147,6 +147,118 @@ for topic in topics:
     print(topic)
 ```
 
+### Flagging fraud based on topics
+
+#### Using LDA model results for fraud detection
+- If we don't have labels, we can first check for frequency of suspicious words within topics and check whether topics seem to describe the fraudulent behaviour.
+- For the Enron email data, a suspicious topic would be one where employees are discussing stock bonuses, selling stock, the Enron stock price, and perhaps mentions of accounting or weak financials.
+- Defining suspicious topics does require some pre-knowledge about the fraudulent behaviour. If the fraudulent topic is noticeable, we can flag all instances that have a high probability for this topic.
+- If we have previous cases of fraud, we can run a topic model on the fraud text only, as well as on the non-fraud text. Check whether the results are similar i.e whether the frequency of topics are the same in fraud versus non-fraud.
+- Lastly, we can check whether fraud cases have a higher probability score for certain topics. If so, we can run a topic model on the new data and create a flag directly on the instances that score high on those topics.
+
+#### To understand topics, we need to visualize
+- Interpretation of the abstract topics can sometimes be difficult, so we need good visualization tools to dive deeper and try to understand what the underlying topics mean.
+- There is a visualization tool called `pyLDAvis` for gensim available, that does an excellent job. Be minfull though, this tool only works with Jupyter notebooks. Once we have created our model, we can create a detailed visualisation in just 2 lines of code.
+
+```python
+import pyLDAvis.gensim
+
+lda_display = pyLDAvis.gensim.prepare(ldamodel, corpus, dictionary, sort_topics=False)
+
+pyLDAvis.display(lda_display)
+```
+
+#### Interpreting the output
+- Each bubble on the left-hand side represents a topic. The larger the bubble, the more prevalent that topic is. We can click on each topic to get the details per topic in the right panel.
+- The words are the most important keywords that form the selected topic. A good topic model will have fairly big, non-overlapping bubbles scattered throughout the chart.
+- A model with too many topics, will typically have many overlaps, or small sized bubbles clustered in one region. In our case, there is a slight overlap between topics 2 & 3, so that may point to 1 topic too many.
+
+#### Practical application : Assign topics to original data
+- One of the practical application of topic modelling is to determine what topic a given text is about. *To find that, we need to find the topic number that has the highest percentage contribution in that text*. 
+- The below function nicely aggregates this information in a presentable table.
+
+```python
+def get_topic_details(ldamodel, corpus):
+    topic_details_df = pd.DataFrame()
+    for i, row in enumerate(ldamodel[corpus]):
+        row = sorted(row, key=lambda x: (x[1]), reverse=True)
+        for j, (topic_num, prop_topic) in enumerate(row):
+            if j == 0:  # => dominant topic
+                wp = ldamodel.show_topic(topic_num)
+                topic_details_df = topic_details_df.append(pd.Series([topic_num, prop_topic]), ignore_index=True)
+    topic_details_df.columns = ['Dominant_Topic', '% Score']
+    return topic_details_df
+```
+
+- Function can be applied as follows:
+
+```python
+contents = pd.DataFrame({'Original text':text_clean})
+topic_details = pd.concat([get_topic_details(ldamodel,
+                           corpus), contents], axis=1)
+topic_details.head()
+```
+
+- **Result** : Each row contains the dominant topic number, the probability score with that topic and the original text data.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
