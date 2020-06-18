@@ -83,7 +83,7 @@ for token in doc:
 - Spacy uses a standardized labels scheme.
 - The "dep underscore" attribute returns the predicted dependency label.
 
-<img src="syntactic_dependencies.JPG" width="350" title="syntatic_dependencies">
+<img src="images/syntactic_dependencies.JPG" width="350" title="syntatic_dependencies">
 
 - The pronoun she is a nominal subject attached to the verb - in this case, to "ate". The noun "pizza" is a direct object attached to the verb "ate". It is eaten by the subject "she".
 - The determiner "the", also known as an article, is attached to the noun "pizza".
@@ -107,6 +107,179 @@ spacy.explain("GPE")
 spacy.explain("NER")
 spacy.explain("dobj")
 ```
+
+### Rule based matching
+
+#### Why not regular expressions
+- Spacy's matcher let's us write rules to find words and phrases in text. Compared to regular expressions, the matcher workds with DOc and token objects instead of only strings.
+- It's also more flexibe : we can search for texts but also other lexical attributes.
+- We can even write rules that use the model's predictions. For example, find the word "duck" only if it's a verb, not a noun.
+
+#### Match patterns
+- Match patterns are lists of dictionaries. Each dictionary describes one token. The keys are the names of the token attributes, mapped to their expected values.
+- E.g `[{'ORTH':'iPhone'}, {'ORTH':'X'}]` . In this example, we're looking for two tokens with the text "iPhone" and "X". We can also match on other token attributes.
+- E.g `[{'LOWER':'iphone'}, {'LOWER':'x'}]`. Here, we're looking for two tokens whose lowercase forms equal "iphone" and "x".
+- We can even write patterns using attributes predicted by the model. `[{'LEMMA':'buy'}, {'POS':'NOUN'}]` . Here we are matching a token with the lemma "buy", plus a noun. The lemma is the base form, so the pattern would match phrases like "buying milk" or "bought flowers".
+
+#### Using the Matcher
+
+```python
+import spacy
+
+# import the matcher
+from spacy.matcher import Matcher
+
+# load the model and create the nlp object
+nlp = spacy.load('en_core_web_sm')
+
+# initialize the matcher with the shared vocab
+matcher = Matcher(nlp.vocab)
+
+# add pattern to the matcher
+pattern = [{'ORTH':'iPhone'}, {'ORTH':'X'}]
+
+# the first argument is a unique ID to identify which pattern was matched,
+# second argument is an optional callback, we don't need here so we set it to None
+# third argument is the pattern
+matcher.add('IPHONE_PATTERN', None, pattern)
+
+# process some text
+doc = nlp("New iPhone X release date leaked")
+
+# call the matcher on the doc, it returns a list of tuples 
+matches = matcher(doc)
+
+# each tuple consists of 3 values : the match ID, the start index and the end index of the matched span
+# match_id : hash value of the pattern name
+# start : start index of matched span
+# end : end index of matched span
+# iterate over the matches
+for match_id, start, end in matches:
+    # get the matched span
+    matched_span = doc[start:end]
+    print(matched_span.text)
+```
+
+#### Matching lexical attributes
+- 5 tokens consisting of only digits. Three case-insensitive tokens for 'fifa', 'world' and 'cup' and a token that consists of punctuation. The pattern matches the token `"2018 FIFA World Cup:"`
+
+```python
+pattern = [{"IS_DIGIT":True}, {"LOWER":'fifa'}, {"LOWER":"world"}, {"LOWER":"cup"},
+            {"IS_PUNCT":True}]
+doc = nlp("2018 FIFA World Cup : France won!")
+```
+
+#### Matching other token attributes
+
+```python
+pattern = [{'LEMMA':'love', 'POS':'VERB'}, {'POS':'NOUN'}]
+
+doc = nlp("I loved dogs but the now I love cats more")
+```
+
+- Here we have 2 tokens. A verb with the lemma "love", followed by a noun. This pattern matches "loved dogs" and "love cats".
+
+#### Using operators and quantifiers
+
+```python
+pattern = [{'LEMMA':'buy'},
+           {'POS':'DET', 'OP':'?'}, # optional : match 0 or 1 times
+           {'POS':'NOUN'}]
+doc = nlp("I bought a smartphone. Now I'm buying apps.")
+```
+
+- Operators and quantifiers lets us define how often a token should be matched. They can be added using the 'OP' key. Here the "?" operator makes the determiner token optional, so it will match a token with the lemma "buy", an optional article and a noun.
+- "OP" can have one of the four values:
+
+<img src="images/operators.JPG" width="350" title="operators">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
           
