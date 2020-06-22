@@ -299,17 +299,320 @@ doc.ents = [span_with_label]
 - To keep things consistent, use the built-in attributes wherever possible. For example `token.i` for the token index.
 - Don't forget to pass in the shared `vocab`.
 
+### Word Vectors and semantic similarity
+- Use spacy to predict how similar documents, spans or tokens are to each other. Spacy can compare two objects and predict how similar they are - for example, documents, spans or single tokens.
+- The `Doc, Token and Span` objects have a `.similarity()` method that takes another object and returns a floating point number between 0 and 1, indicating how similar they are.
+- Inorder to use similarity, we need a larger spacy model that has word vectors included. For e.g the medium or large English model - but not the small one.
+- `en_core_web_md (medium model) , en_core_web_lg (large model), en_core_web_sm (small model)`. So if we want to use vectors, always use a model that ends in "md" or "lg".
 
+#### Similarity example
 
+```python
+# load the medium English model with vectors
+nlp = spacy.load("en_core_web_md")
 
+# compare two documents
+doc1 = nlp("I like fast food")
+doc2 = nlp("I like pizza")
 
+print(doc1.similarity(doc2))
 
+# compare two tokens
+doc = nlp(" I like pizza and pasta")
 
+token1 = doc[2]
+token2 = doc[4]
 
+print(token1.similarity(token2))
 
+# we can also use the similarity method to compare different tyes of objects
+# e.g a document and a token
 
+doc = nlp("I like pizza")
+token = nlp("soap")[0]
 
+print(doc.similarity(token))
 
+# compare a span with a document
+span = nlp("I like pizza and pasta")[2:5]
+doc = nlp("Mcdonalds sells burgers")
+
+print(span.similarity(doc))
+```
+
+#### How does spacy predict similarity?
+- Similarity is determined using word vectors, multi-dimensional representations of meanings of words. Vectors can be added to spacy's statistical models.
+- By default, the similarity returned by spacy is the cosine similarity between two vectors.
+- Doc and Span vectors default to the average of their token vectors. Short phrases are better than long documents with many irrelevant words. That's why we usually get more value out of shorter phrases with fewer irrelevant words.
+
+#### Word vectors in spacy
+- First, we load the medium model again which ships with word vectors.
+
+```python
+# load a larger model with vectors
+nlp = spacy.load('en_core_web_md')
+doc = nlp("I have a banana")
+
+# access the vector via the token.vector attribute.
+print(doc[3].vector)
+
+# result is a 300-dimensional vector of the word banana
+```
+
+#### Similarity depends on the application context
+- Similarity can be used for many applications: recommendation systems, flagging duplicates etc.
+- It's important to keep in mind that there's no objective definition of what's similar and what is'nt. It always depends on the context and what the application needs to do.
+- Example : spacy's default word vectors assign a very high similarity score to "I like cats" and "I hate cats". This makes sense, because both texts express sentiment about cats. But in a different application context, we might want to consider the phrases as very dissimilar, because they talk about opposite sentiments.
+
+#### Combining model and rules
+- Combining statistical models with rule-based systems is one of the most powerful tricks we should have in our NLP toolbox.
+
+<img src="images/rules.JPG" width="350" title="rules">
+
+#### Recap : Rule based Matching
+- Use spacy's rule-based Matcher to find complex patterns in our texts.
+
+```python
+from spacy.matcher import Matcher
+matcher = Matcher(nlp.vocab)
+
+# patterns are list of dictionaries describing the tokens
+pattern = [{'LEMMA':'love', 'POS':'VERB'}, {'LOWER':'cats'}]
+# patterns can be added to the matcher using the matcher.add
+matcher.add('LOVE_CATS', None,pattern)
+
+# operators can specify how often a token should be matched
+# '+' would match one or more times
+pattern = [{'TEXT':'very', 'OP':'+'}, {'TEXT':'happy'}]
+
+# calling matcher on doc object returns list of matches (match_id, start, end) tuples
+doc = nlp("I love cats and I'm very very happy")
+matches = matcher(doc)
+```
+
+#### Adding statistical predictions
+
+```python
+matcher = Matcher(nlp.vocab)
+matcher.add('DOG', None, [{'LOWER':'golden'}, {'LOWER':'retriever'}])
+doc = nlp('I have a Golden Retriever')
+
+for match_id, start, end in matcher(doc):
+    span = doc[start:end]
+    print("Matched span:", span.text)
+    # get the span's root token and root head token
+    print("Root token:", span.root.text)
+    print("Root head token:", span.root.head.text)
+    # get the previous token and its POS tag
+    print('Previous token:', doc[start-1].text, doc[start-1].pos_)
+```
+
+- If the span consists of more than one token, this will be the token that decides the category of the phrase. For e.g the root of "Golden Retriever" is "Retriever". We can also find the head token of the root. This is the synatic "parent" that governs the phrase - in this case, the verb "have".
+- We can also look at the previous token and its attributes. In this case, it's a determiner, the article "a".
+
+#### Efficient phrase matching
+- The phrase matcher is another helpful tool to find sequences of words in our data. If performs the keyword search on the document, but instead of only finding strings, it gives us direct access to the tokens in context. (**PhraseMatcher** is like regular expressions or keyword search - but with access to the tokens!)
+- It takes Doc objects as patterns. More efficient and faster than the **Matcher**. This makes it very useful for matching large dictionaries and word lists on large volumnes of text.
+
+```python
+from spacy.matcher import PhraseMatcher
+
+matcher = PhraseMatcher(nlp.vocab)
+
+# instead of list of dicts, we pass doc object as the pattern
+pattern = nlp("Golden Retriever")
+matcher.add('DOG', None, pattern)
+doc = nlp("I have a Golden Retriever")
+
+# iterate over the matches
+for match_id, start, end in matcher(doc):
+    # get the matched span
+    span = doc[start:end]
+    print("Matched span:", span.text)
+```
+
+- This let's us create a Span object for the matched tokens "Golden Retriever" to analyze it in context.
+
+### Preprocessing pipelines
+- Preprocessing pipelines : a series of functions applied to a Doc to add attributes like part-of-speech tags, dependency labels or named entities.
+
+#### What happens when we call nlp ?
+
+```python
+doc = nlp("This is a sentence")
+```
+
+<img src="images/pipeline.JPG" width="350" title="pipeline">
+
+1. First the tokenizer is applied to turn the string of text into a Doc object.
+2. Next a series of pipeline components is applied to the Doc in order. The tagger, then the parser, then the entity recognizer.
+3. Finally, the processed Doc is returned, so we can work with it.
+
+<img src="images/pl.JPG" width="350" title="pipeline">
+
+- The text classifier sets category labels that apply to the whole text, and adds them to the doc.cats property. Because text categories are always very specific, the text classifier is not included in any of the pre-trained models by default. But we can use it to train our own system.
+
+#### Under the hood
+
+<img src="images/hood.JPG" width="350" title="pipeline">
+
+- All models we can load into spacy include several files and a meta JSON. The meta defines things like the language and pipeline.
+
+#### Pipeline attributes
+
+```python
+print(nlp.pipe_names)  # list of pipeline component names
+
+print(nlp.pipeline)   # list of (name, compenent) tuples
+```
+
+### Custom pipeline components
+- Custom pipeline components lets us add our own function to the spacy pipeline that is executed when we call the nlp object on a text. After the text is tokenized and a Doc object has been created, pipeline components are applied in order.
+- Custom components are executed automatically when we call the nlp object on a text. They are specially useful for adding our own custom metadata to documents and tokens. We can also use them to update built-on attributes, like the named entity spans.
+
+#### Anatomy of a component
+- Fundamentally, a pipeline component is a function or callable that takes a doc, modifies it and returns it, so it can be processed by the next component in the pipeline.
+- Components can be added to the pipeline using the `nlp.add_pipe` method.
+
+```python
+def custom_component(doc):
+    # do something to the doc here
+    return doc
+    
+nlp.add_pipe(custom_component)
+```
+
+- To specify where to add the custom component in the pipeline, we can use following keyword arguments.
+
+<img src="images/customr.JPG" width="350" title="custom pipeline">
+
+#### Example : a simple component
+
+```python
+# create the nlp object
+nlp = spacy.load('en_core_web_sm')
+
+# define a custom component
+def custom_component(doc):
+    # print the doc's length
+    print('Doc length :', len(doc))
+    # return the doc object
+    return doc
+    
+# add the component first in the pipeline
+nlp.add_pipe(custom_component, first=True)
+
+print('Pipeline:', nlp.pipe_names)
+
+#process a text
+doc = nlp("hello world")
+```
+
+### Extension attributes
+
+#### Setting custom attributes
+- Custom attributes lets us add any meta data to Docs, Tokens and Spans. The data can be added once or it can be computed dynamically.
+- Custom attributes are available via to `._` property.
+- This makes it clear that they were added by the user, and not built into spacy, like `token.text`
+
+```python
+doc._.title = "My document"
+token._.is_color = True
+span._.has_color = False
+```
+
+- Attributes needs to be registered on the **global** Doc, Token and Span classes we can import from `spacy.tokens`
+- To register a custom attribute on the Doc, Token or Span we can use the set extension method.
+
+```python
+# import global classes
+from spacy.tokens import Doc, Token, Span
+
+# set extensions on the Doc, Token and Span
+# in this case they have default values and can be overwritten
+Doc.set_extension('title', default=None)
+Token.set_extension('is_color', default=False)
+Span.set_extension('has_color', default=False)
+```
+
+#### Extension attribute types
+- Attribute extensions
+- Property extensions
+- Method extensions
+
+#### Attribute extensions
+- Set a default value that can be overwritten. For e.g, a custom "is_color" attribute on the token that defaults to False. On individual tokens, its value can be changed by overwriting it - in this case, True for the token "blue"
+
+```python
+from spacy.tokens import Token
+
+# set the extension on the Token with default value
+Token.set_extension("is_color", default=False)
+
+doc = nlp("The sky is blue.")
+
+# overwrite the extension attribute value
+doc[3]._.is_color = True
+```
+
+#### Property extensions
+- Property extensions work like properties in python: they can define a getter function and an optional setter.
+- The getter function is only called when we retrieve the attribute. This let's us to compute the value dynamically, and even take other custom attributes into account.
+- Getter functions takes one argument : the object, in this case, the token. In the below example , the function returns whether the token text is in our list of colors.
+- We can then provide the function via the getter keyword argument when we register the extension. The token `blue` now returns True for `is_color`
+- If we want to set extension attributes on a Span, we almost always want to use a property extension with a getter. Otherwise, we would have to update every possible span ever by hand to set all the values.
+- 
+
+```python
+from spacy.tokens import Token
+
+# define getter function
+def get_is_color(token):
+    colors = ['red', 'yellow', 'blue']
+    return token.text in colors
+# set extension on the token with getter
+Token.set_extension('is_color', getter=get_is_color)
+
+doc = nlp("The sky is blue.")
+print(doc[3]._.is_color, '-', doc[3].text)
+```
+
+- In below example, the `get_has_color` function takes the span and returns whether the text of any of the tokens is in the list of colors.
+
+```python
+from spacy.tokens import Span
+
+# define getter function
+def get_has_color(span):
+    colors = ['red', 'yellow', 'blue']
+    return any(token.text in colors for token in span)
+# set extension on the Span with getter
+Span.set_extension('has_color', getter=get_has_color)
+doc = nlp("The sky is blue.")
+print(doc[1:4]._.has_color, '-', doc[1:4].text)
+print(doc[0:2]._.has_color, '-', doc[0:2].text)
+```
+
+#### Method extensions
+- Method extensions make the extension attribute a callable method. We can then pass one or more arguments to it, and compute attribute values dynamically- for e.g, based on a certain argument or setting.
+- Assigns a function that becomes available as an object method.
+- Let's us pass arguments to the extension function.
+- Below example checks whether the doc contains the token with the given text.The first argument of the method is always the object itself - in this case, the Doc. It's passed in automatically when the method is called.The custom `has_token` method returns True for the word "blue" and False for the word "cloud".
+
+```python
+from spacy.tokens import Doc
+
+# define method with arguments
+def has_token(doc, token_text):
+    in_doc = token_text in [token.text for token in doc]
+    
+# set extension on the Doc with method
+Doc.set_extension('has_token', method=has_token)
+doc = nlp("the sky is blue.")
+
+print(doc._.has_token('blue'), '-blue')
+print(doc._.has_token('cloud'), '-cloud')
+```
 
 
 ### The training loop
@@ -386,24 +689,6 @@ for itn in range(10):
         # update the model
         nlp.update(texts, annotation)
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
