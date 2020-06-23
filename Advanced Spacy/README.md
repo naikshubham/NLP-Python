@@ -614,6 +614,76 @@ print(doc._.has_token('blue'), '-blue')
 print(doc._.has_token('cloud'), '-cloud')
 ```
 
+### Scaling and Performance
+
+#### Processing large volumes of text
+- If we need to process a lot of texts and create a lot of Doc objects in a row, the `nlp.pipe` object can speed it up significantly. It processes the texts as a stream and yields Doc objects.
+- It is much faster than just calling nlp on each text, because it batches up the texts. **`nlp.pipe` is a generator that yields Doc objects**, so inorder to get a list of Docs remember to call the list method around it.
+
+```python
+# BAD
+
+docs = [nlp(text) for text in LOTS_OF_TEXTS]
+
+# GOOD
+
+docs = list(nlp.pipe(LOTS_OF_TEXTS))
+```
+
+#### Passing in context
+- `nlp.pipe` also supports passing in tuples of text/context if we set `as_tuples` to True. Let's us pass in `(text, context)` tuples.
+- The method will then yield `(doc, context)` tuples.
+- Useful for associating metadata with the doc
+
+```python
+data = [("This is a text", {'id': 1, 'page_number': 15}),
+        ("And another text", {'id':2, 'page_number': 16}), ]
+
+for doc, context in nlp.pipe(data, as_tuples=True):
+    print(doc.text, context['page_number'])
+```
+
+- We can even add the context meta data to custom attributes. In this e.g, we are registering two extensions, "id" and "page number", which is default to None. After processing the text and passing through the context, we can overwrite the doc extensions with our context metadata.
+
+```python
+from spacy.tokens import Doc
+
+Doc.set_extension('id', default=None)
+Doc.set_extension('page_number', default=None)
+
+data = [("This is a text", {'id': 1, 'page_number': 15}),
+        ("And another text", {'id':2, 'page_number': 16}), ]
+
+for doc, context in nlp.pipe(data, as_tuples=True):
+    doc._.id = context['id']
+    doc._.page_number = context['page_number']
+```
+
+#### Using only the tokenizer
+- ANother common scenario : Sometimes we  already have a model loaded to do other processing, but we only need the tokenizer for one particular text.
+- Running the whole pipeline is unnecessarily slow, because we'll be getting a bunch of predictions from the model that we don't need. If we only need the tokenized Doc object, we can use the **`nlp.make_doc`** to turn text into a Doc object. This is also how spacy does it behind the scenes. `nlp.make_doc` turns the text into a Doc before the pipeline components are called.
+
+```python
+# BAD
+doc = nlp("Hello world")
+
+# GOOD
+doc = nlp.make_doc("Hello world")
+```
+
+#### Disabling pipeline components
+- spacy also allows us to temporarily disable pipeline components using the `nlp.disable_pipes` context manager
+- It takes a variable number of arguments, the string names of the pipeline components to disable. For e.g if we only want to use the entity recognizer to process a document, we can temporarily disable the tagger and parser.
+
+```python
+# disable tagger and parser
+with nlp.disable_pipes('tagger', 'parser'):
+    # process the text and print the entities
+    doc = nlp(text)
+    print(doc.ents)
+```
+
+- After the with block, the disabled pipeline components are automatically restored.
 
 ### The training loop
 - While some other libraries gives us one method that takes care of training a model, spacy gives us full control over the training loop.
@@ -624,6 +694,19 @@ print(doc._.has_token('cloud'), '-cloud')
 3. Next we divide the training data into batches of several examples, also known as minibatching. This makes it easier to make a more accurate estimate of the gradient.
 4. Finally, we update the model for each batch, and start the loop again until we've reached the last iteration.
 5. We can then save the model to a directory and use it in spacy.
+
+#### Training the entity recognizer
+- The entity recognizer takes a document and predicts phrases and their labels. The training data needs to include the texts, the entities they contain, and the entity labels.
+- Bcz entity recognizer predicts entities in context, it also needs to be trained on entities and their surrounding context. 
+
+```python
+("iphone X is coming", {'entities' : [(0, 8, 'GADGET')]})
+```
+- It's also very important for the model to learn words that aren't entities. In this case the list of span annotations will be empty.
+
+```python
+("I need a new phone! Any tips?", {"entities":[]})
+```
 
 #### Recap
 - The training data are the examples we want to update our model with. The text should be a sentence, paragraph or a longer document. For best results, it should be similar to what the model will see at runtime.
@@ -690,16 +773,49 @@ for itn in range(10):
         nlp.update(texts, annotation)
 ```
 
+### Best practices for training spacy models
+- Training models is an iterative process, and we have to try different things until we find out what works best.
 
+#### Problem 1 : Models can "forget" things
+- Statistical models can learn lots of things - but it doesn't mean they won't unlearn them. If we're updating an existing model with new data, especially new labels, it can overfit and adjust too much to the new examples.
+- For instance, if we're only updating it with examples of "website", it may forget other labels it previously predicted correctly - like "person". This is also known as a catastrophic forgetting problem.
 
+#### Solution 1 : Mix in previously correct predictions
+- To prevent this, make sure to always mix in examples of what the model previously got correct. If we're training a new category "website", also include examples of "person".
+- We can create those additional examples by running the existing model over data and extracting the entity spans we care about. We can then mix those examples in with our existing data and update the model with annotations of all labels.
 
+```python
+# BAD
+TRAINING_DATA = [('Reddit is a website', {'entities':[(0, 6, 'WEBSITE')]})]
 
+# GOOD
+TRAINING_DATA = [('Reddit is a website', {'entities':[(0, 6, 'WEBSITE')]}),
+                 ('Obama is a person', {'entities':[(0, 5, 'PERSON')]}) ]
+```
 
-
-
+#### Problem 2: Models can't learn everything
+- Another problem is that our model just won't learn what we want it to. Spacy's models make predictions based on the local context - for e.g for named entities, the surrounding words are most important. 
+- If the decision is difficult to make based on the context, the model can struggle to learn it. The label scheme also needs to be consistent and not too specific.
+- For example, it may be very difficult to teach a model to predict whether something is adult clothing or children's clothing based on the context. However, just predicting the label "clothing" may work better.
         
-        
-        
+#### Solution 2: Plan your label scheme carefully
+- Before we start planning and updating models, it's worth taking a step back and planning our label scheme.
+- Try to pick categories that are reflected in the local context and make them more generic if possible.
+- Use rules to go from generic labels to specific categories.
+
+```python
+# BAD 
+LABELS = ['ADULT_SHOES', 'CHILDREN_SHOES', 'BAND_I_LIKE']
+
+# GOOD
+LABELS = ['CLOTHING', 'BAND']
+```
+
+- Generic categories like "clothing' or "band" are both easier to label and easier to learn.
+- Once the model achieves good results on detecting GPE entities in the traveler reviews, we could add a rule-based component to determine whether the entity is a tourist destination in this context. For example, we could resolve the entities types back to a knowledge base or look them up in a travel wiki.
+
+### Acknowledgement
+- Datacamp : Advanced Spacy by Ines Montani (spacy core developer)
         
         
         
