@@ -150,8 +150,9 @@ second_char = np.random.choice(sorted(list(vocabulary)), replace=False,p=probs.r
 ```
 
 
-
-
+### Limitation of RNN
+- Simple recurrent neural networks suffer from the problem of vanishing gradients where the gradients of the weights become smaller and smaller and eventually become zero as we move backward from the last time-step towards the first time-step.
+- Recurrent neural networks also suffer from the exploding gradient problem where the gradient values of the weights become bigger and bigger as we move back-propagate towards the first time-step. 
 
 
 
